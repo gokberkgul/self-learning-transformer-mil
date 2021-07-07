@@ -1,0 +1,8 @@
+# VSCode Generated Folders
+.vscode
+.ipynb_checkpoints
+__pycache__
+
+# Test scripts and pictures
+*.ipynb
+*.jpg
