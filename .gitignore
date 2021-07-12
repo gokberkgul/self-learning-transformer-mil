@@ -6,3 +6,6 @@ __pycache__
 # Test scripts and pictures
 *.ipynb
 *.jpg
+
+# Trained models
+*.pth

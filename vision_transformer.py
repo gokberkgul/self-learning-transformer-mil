@@ -295,7 +295,7 @@ class VisionTransformer(nn.Module):
     norm : nn.* (Normalization Layers)
         Normalization layer.
     head : nn.Linear
-        Classifier head of Transformer. Left as identity if num_classes is zero. 
+        Classifier head of Transformer. Left as identity if num_classes is zero.
 
     """
     def __init__(self, img_size=224, patch_size=8, channel_size=3, embed_dim=384, num_classes=0, depth=12,
@@ -374,4 +374,4 @@ class VisionTransformer(nn.Module):
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
-        return x[:, 0]
+        return x[:, 0]  #: Return cls token
