@@ -7,6 +7,8 @@ from skimage.filters import threshold_otsu
 from PIL import Image
 from tqdm import tqdm
 
+from normalize_staining import normalize_staining
+
 
 def get_parser():
     """Returns args parser"""
@@ -127,6 +129,7 @@ def tile_slide(slide_path, out_folder, size, overlap, magnification, tissue_thre
             mask = np.array(channel_mask, dtype=int)
         tissue_ratio = np.sum(mask)/mask.size
         if tissue_ratio > tissue_threshold:
+            img_array, _, _ = normalize_staining(img_array)
             im = Image.fromarray(img_array)
             img_name = str(tile['tile_x']) + "_" + str(tile['tile_y']) + ".png"
             im.save(os.path.join(out_folder, img_name))
@@ -165,7 +168,7 @@ def _main(args):
     file, processed_slides = get_processed_slides(args.output_folder)
     slides = discover_slides(args.source_slides_folder)
     print(f'Discovered {len(slides)} slides in total')
-    for slide_path in tqdm(slides[:1]):
+    for slide_path in tqdm(slides):
         if slide_path + ',' + str(args.magnification) in processed_slides:  #: If we already processed the slide before
             continue
         slide = open_slide(slide_path)
