@@ -66,16 +66,16 @@ def get_threshold(slide, rgb):
         List of thresholds in respective channels.
 
     """
-    thumbnail = slide.get_thumbnail((slide.dimensions[0] / 256, slide.dimensions[1] / 256))
+    thumbnail = slide.get_thumbnail((slide.dimensions[0] / 256, slide.dimensions[1] / 256))  #: Thumbnail slide
     thresholds = []
     if rgb:
         thumbnail_arr = np.asarray(thumbnail)
-        thresholds.extend([threshold_otsu(thumbnail_arr[:, :, 0]),
-                           threshold_otsu(thumbnail_arr[:, :, 1]),
-                           threshold_otsu(thumbnail_arr[:, :, 2])])
+        thresholds.extend([threshold_otsu(thumbnail_arr[:, :, 0]),   #: R
+                           threshold_otsu(thumbnail_arr[:, :, 1]),   #: G
+                           threshold_otsu(thumbnail_arr[:, :, 2])])  #: B
     else:
-        thumbnail_grey = np.asarray(thumbnail.convert('L'))  #: Grayscale
-        thresholds.append(threshold_otsu(thumbnail_grey))
+        thumbnail_arr = np.asarray(thumbnail.convert('L'))  #: Grayscale
+        thresholds.append(threshold_otsu(thumbnail_arr))
     return thresholds
 
 
@@ -102,6 +102,8 @@ def tile_slide(slide_path, out_folder, size, overlap, magnification, tissue_thre
     """
     if not os.path.exists(out_folder):
         os.makedirs(out_folder)
+    file = open(os.path.join(out_folder, 'metadata.txt'), 'a+')  #: Generate if file doesn't exist
+    file.write('Patch Name, Global X position, Global X width, Global Y position, Global Y Height, Tissue Ratio\n')
     ts = large_image.getTileSource(slide_path)
     iteratorArgs = {
         "scale": dict(magnification=magnification),
@@ -110,42 +112,78 @@ def tile_slide(slide_path, out_folder, size, overlap, magnification, tissue_thre
         "format": large_image.tilesource.TILE_FORMAT_NUMPY
     }
     tile_count = ts.getTileCount(**iteratorArgs)  #: To print progression
-    ts_iterator = ts.tileIterator(**iteratorArgs)
+    ts_iterator = ts.tileIterator(**iteratorArgs)  #: Generate an iterator for tiling
     for tile in tqdm(ts_iterator, total=tile_count):
-        img_array = tile['tile']
+        img_array = tile['tile']  #: Get image as numpy array
         mask = np.ones((img_array.shape[0], img_array.shape[1]))
-        if len(thresholds) > 1:
+        if len(thresholds) > 1:  #: Apply threshold on RGB channels
             for i, img_channel in enumerate([img_array[:, :, 0], img_array[:, :, 1], img_array[:, :, 2]]):
                 channel_mask = img_channel < thresholds[i]
                 channel_mask = np.array(channel_mask, dtype=int)
                 mask = mask * channel_mask
-        else:
-            gray_img = np.asarray(Image.fromarray(img_array).convert('L'))  #: Grayscale
+        else:  #: Apply threshold on grayscale channel
+            gray_img = np.asarray(Image.fromarray(img_array).convert('L'))  #: Convert to grayscale
             channel_mask = gray_img < thresholds[0]
             mask = np.array(channel_mask, dtype=int)
-        average_tissue = np.sum(mask)/mask.size
-        if average_tissue > tissue_threshold:
+        tissue_ratio = np.sum(mask)/mask.size
+        if tissue_ratio > tissue_threshold:
             im = Image.fromarray(img_array)
-            im.save(os.path.join(out_folder, str(tile['tile_x']) + "_" + str(tile['tile_y']) + ".png"))
+            img_name = str(tile['tile_x']) + "_" + str(tile['tile_y']) + ".png"
+            im.save(os.path.join(out_folder, img_name))
+            file.write(img_name + ',' + str(int(tile['gx'])) + ',' + str(int(tile['gwidth'])) + ',' +
+                       str(int(tile['gy'])) + ',' + str(int(tile['gheight'])) + ',' + str(tissue_ratio) + '\n')
+            file.flush()
+    file.close()
+
+
+def get_processed_slides(folder_dir):
+    """Opens txt file and parses processed slides information
+
+    Parameters
+    ----------
+    folder_dir : string
+        txt folder path
+
+    Returns
+    -------
+    file : TextIOWrapper
+        txt file
+    processed_slides : list
+        List of processed slides and magnification
+
+    """
+    if not os.path.exists(folder_dir):
+        os.makedirs(folder_dir)
+    file = open(os.path.join(folder_dir, 'processed_slides.txt'), 'a+')  #: Generate if file doesn't exist
+    file.seek(0)  #: Move pointer to the first line
+    processed_slides = file.read()
+    processed_slides = processed_slides.split('\n')
+    return file, processed_slides[:-1]
 
 
 def _main(args):
+    file, processed_slides = get_processed_slides(args.output_folder)
     slides = discover_slides(args.source_slides_folder)
     print(f'Discovered {len(slides)} slides in total')
-    for slide_path in tqdm(slides):
+    for slide_path in tqdm(slides[:1]):
+        if slide_path + ',' + str(args.magnification) in processed_slides:  #: If we already processed the slide before
+            continue
         slide = open_slide(slide_path)
         thresholds = get_threshold(slide, args.threshold_rgb)
         overlap = int(args.size * args.overlap)
         slide_name = slide_path.split('/')[-1]
         out_folder = ""
         if "normal" in slide_name:
-            out_folder = os.path.join(args.output_folder, 'training', 'normal', slide_name[:-4])
+            out_folder = os.path.join(args.output_folder, 'mag' + str(args.magnification), 'training', slide_name[:-4])
         elif "tumor" in slide_name:
-            out_folder = os.path.join(args.output_folder, 'training', 'tumor', slide_name[:-4])
+            out_folder = os.path.join(args.output_folder, 'mag' + str(args.magnification), 'training', slide_name[:-4])
         else:
-            out_folder = os.path.join(args.output_folder, 'test', slide_name[:-4])
+            out_folder = os.path.join(args.output_folder, 'mag' + str(args.magnification), 'test', slide_name[:-4])
         print(f'Processing slide {slide_name}')
         tile_slide(slide_path, out_folder, args.size, overlap, args.magnification, args.tissue_threshold, thresholds)
+        file.write(slide_path + ',' + str(args.magnification) + '\n')
+        file.flush()  #: Write to txt before closing the file
+    file.close()
 
 
 if __name__ == '__main__':
