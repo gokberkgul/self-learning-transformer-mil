@@ -3,7 +3,7 @@ import torch.nn as nn
 from torchvision import transforms
 import math
 
-from src.model.helpers import trunc_normal_
+from helpers import trunc_normal_
 
 
 class PatchEmbed(nn.Module):

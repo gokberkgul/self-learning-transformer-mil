@@ -181,7 +181,7 @@ def _main(args):
         elif "tumor" in slide_name:
             out_folder = os.path.join(args.output_folder, 'mag' + str(args.magnification), 'training', slide_name[:-4])
         else:
-            out_folder = os.path.join(args.output_folder, 'mag' + str(args.magnification), 'test', slide_name[:-4])
+            out_folder = os.path.join(args.output_folder, 'mag' + str(args.magnification), 'testing', slide_name[:-4])
         print(f'Processing slide {slide_name}')
         tile_slide(slide_path, out_folder, args.size, overlap, args.magnification, args.tissue_threshold, thresholds)
         file.write(slide_path + ',' + str(args.magnification) + '\n')
