@@ -45,9 +45,14 @@ def normalize_staining(img, saveFile=None, Io=240, alpha=1, beta=0.15):
 
     # remove transparent pixels
     ODhat = OD[~np.any(OD < beta, axis=1)]
+    if ODhat.size == 0:
+        return None, None, None
 
     # compute eigenvectors
-    eigvals, eigvecs = np.linalg.eigh(np.cov(ODhat.T))
+    try:
+        eigvals, eigvecs = np.linalg.eigh(np.cov(ODhat.T))
+    except:
+        return None, None, None
 
     # eigvecs *= -1
 
