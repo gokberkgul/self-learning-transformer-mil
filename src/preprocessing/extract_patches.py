@@ -130,7 +130,7 @@ def tile_slide(slide_path, out_folder, size, overlap, magnification, tissue_thre
         tissue_ratio = np.sum(mask)/mask.size
         if tissue_ratio > tissue_threshold:
             img_array, _, _ = normalize_staining(img_array)
-            if img_array is None:
+            if img_array is None or img_array.shape != (224, 224, 3):
                 continue
             im = Image.fromarray(img_array)
             img_name = str(tile['tile_x']) + "_" + str(tile['tile_y']) + ".png"
