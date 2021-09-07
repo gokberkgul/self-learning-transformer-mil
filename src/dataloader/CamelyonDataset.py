@@ -33,7 +33,7 @@ class CamelyonDataset(torch.utils.data.dataset.Dataset):
                     slides.append(root)
                 elif not self.is_training and 'test' in root:
                     slides.append(root)
-        self.slides_folders = slides
+        self.slides_folders = np.array(slides)
         self.max_bag_size = max_bag_size
 
         self.slides_ids = []  # ids slides
@@ -45,22 +45,25 @@ class CamelyonDataset(torch.utils.data.dataset.Dataset):
         self.seed = seed
 
         slides_ids, slides_labels, slides_images_filepaths, all_images = self.load_data()
-        self.slides_ids = slides_ids
-        self.slides_labels = slides_labels
-        self.slides_images_filepaths = slides_images_filepaths
-        self.all_images = all_images
+        self.slides_ids = np.array(slides_ids)
+        self.slides_labels = np.array(slides_labels)
+        self.slides_images_filepaths = np.array(slides_images_filepaths)
+        self.all_images = np.array(all_images)
 
         assert len(self.slides_ids) == len(self.slides_labels) == len(self.slides_images_filepaths), \
             'mismatch in slides containers lengths %s' % (
             ' '.join(str(len(l)) for l in [self.slides_ids, self.slides_labels,
                                            self.slides_images_filepaths]))
         assert len(all_images) == len(self.slides_ids)*self.max_bag_size
+        if self.is_training:
+            self._resample_all_slides()  # Shuffle slides
 
     def load_data(self):
         slides_ids, slides_labels, slides_images_filepaths, all_images = [], [], [], []
 
         # Name of expected non-image files for all slides folders
         metadata_filename = 'metadata.txt'
+        reference_file = None  # Only used for test dataset
 
         # Seek all slides folders, and load static data including list of tiles filepaths and bag label
         for slide_folder in self.slides_folders:
@@ -88,6 +91,11 @@ class CamelyonDataset(torch.utils.data.dataset.Dataset):
             
             if self.is_training:
                 label = 0 if 'normal' in os.path.basename(slide_folder) else 1
+            else:
+                if reference_file is None:
+                    reference_file = open(os.path.join(os.path.dirname(os.path.abspath(slide_folder)), 'reference.csv')).read().split('\n')
+                slide_label = [current_line.split(',')[1] for current_line in reference_file if slide_folder.split('/')[-1] in current_line][0]
+                label = 0 if slide_label == 'Normal' else 1
             # Save data
             slides_ids.append(os.path.basename(slide_folder))
             slides_labels.append(label)
@@ -133,6 +141,11 @@ class CamelyonDataset(torch.utils.data.dataset.Dataset):
 
     def _resample_all_slides(self):
         print("Resampling every slide")
+        indices = np.arange(len(self.slides_folders))
+        np.random.shuffle(indices)
+        self.slides_ids = self.slides_ids[indices]
+        self.slides_labels = self.slides_labels[indices]
+        self.slides_images_filepaths = self.slides_images_filepaths[indices]
         self.all_images = []
         for bag_idx in range(len(self.slides_ids)):
             if self.max_bag_size > len(self.slides_images_filepaths[bag_idx]):
