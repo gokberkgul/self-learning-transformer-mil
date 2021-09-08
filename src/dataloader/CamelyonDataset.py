@@ -18,13 +18,14 @@ def pil_loader(path):
 
 
 class CamelyonDataset(torch.utils.data.dataset.Dataset):
-    def __init__(self, slides_root_dir, transform, is_training, max_bag_size, seed=123):
+    def __init__(self, slides_root_dir, transform, is_training, max_bag_size, get_all_images=False, seed=123):
         """
         :param slides_folders: list of abs paths of slide folder (which should contains images, summary/label/percent
             files
         :param is_training: True if is training, else False (for data augmentation)
         :param max_bag_size: maximum number of instances to be returned per bag
         """
+        self.get_all_images = get_all_images
         self.is_training = is_training
         slides = []
         for root, _, files in os.walk(slides_root_dir, topdown=False):
@@ -68,7 +69,7 @@ class CamelyonDataset(torch.utils.data.dataset.Dataset):
         # Seek all slides folders, and load static data including list of tiles filepaths and bag label
         for slide_folder in self.slides_folders:
             all_slide_files = list(filter(lambda f: os.path.isfile(os.path.join(slide_folder, f)),
-                                          [x for x in os.listdir(slide_folder)]))
+                                          [x.decode() for x in os.listdir(slide_folder)]))
 
             # Seek and save label, case_id and summary files: expects 1 and only 1 for each
             for data_filename in [metadata_filename]:
@@ -94,7 +95,7 @@ class CamelyonDataset(torch.utils.data.dataset.Dataset):
             else:
                 if reference_file is None:
                     reference_file = open(os.path.join(os.path.dirname(os.path.abspath(slide_folder)), 'reference.csv')).read().split('\n')
-                slide_label = [current_line.split(',')[1] for current_line in reference_file if slide_folder.split('/')[-1] in current_line][0]
+                slide_label = [current_line.split(',')[1] for current_line in reference_file if os.path.normpath(slide_folder).split(os.path.sep)[-1] in current_line][0]
                 label = 0 if slide_label == 'Normal' else 1
             # Save data
             slides_ids.append(os.path.basename(slide_folder))
@@ -156,7 +157,13 @@ class CamelyonDataset(torch.utils.data.dataset.Dataset):
     def __getitem__(self, item):
         if item == 0 and self.is_training:
             self._resample_all_slides()
+        if self.get_all_images:
+            slide_instances = [pil_loader(slide_image_filepath) for slide_image_filepath in self.slides_images_filepaths[item]]
+            slide_instances = torch.stack([self.transform(instance) for instance in slide_instances])
+            return slide_instances, self.slides_labels[item], self.slides_ids[item]
         return self.transform(pil_loader(self.all_images[item])), self.slides_labels[int(item/self.max_bag_size)], self.slides_ids[int(item/self.max_bag_size)]
 
     def __len__(self):
+        if self.get_all_images:
+            return len(self.slides_images_filepaths)
         return len(self.all_images)
