@@ -4,7 +4,7 @@ from torchvision import transforms
 import math
 from functools import partial
 
-from helpers import trunc_normal_
+from utils import trunc_normal_
 
 
 class PatchEmbed(nn.Module):
