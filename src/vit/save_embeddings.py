@@ -1,56 +1,41 @@
 import os
-import argparse
-import json
-from pathlib import Path
-
-import torch
-from torch import nn
-import torch.distributed as dist
-import torch.backends.cudnn as cudnn
-from torchvision import datasets
-from torchvision import transforms as pth_transforms
-from torchvision import models as torchvision_models
 import numpy as np
-
-import src.vit.utils as utils
-import src.vit.vision_transformer as vits
-from src.dataloader.CamelyonDataset import CamelyonDataset
-import csv
 import pandas as pd
 
-# ============ preparing data ... ============
+import torch
+from torchvision import transforms as pth_transforms
+
+import utils
+import vision_transformer as vits
+from PIL import Image
+
+class CustomDataSet(torch.utils.data.dataset.Dataset):
+    def __init__(self, main_dir, transform):
+        self.main_dir = main_dir
+        self.transform = transform
+        self.total_imgs = [dirr for dirr in os.listdir(main_dir) if dirr != 'metadata.txt']
+
+    def __len__(self):
+        return len(self.total_imgs)
+
+    def __getitem__(self, idx):
+        img_loc = os.path.join(self.main_dir, self.total_imgs[idx])
+        image = Image.open(img_loc).convert("RGB")
+        tensor_image = self.transform(image)
+        return tensor_image
+
 train_transform = pth_transforms.Compose([
     pth_transforms.ToTensor(),
+    pth_transforms.Normalize((0.6223, 0.4763, 0.6009), (0.2012, 0.2190, 0.1722)),
 ])
-val_transform = pth_transforms.Compose([
-    pth_transforms.ToTensor(),
-])
-dataset_train = CamelyonDataset('/media/gokberk/Disk/WSIs/Camelyon16/processed/mag20', transform=train_transform, is_training=True, max_bag_size=256, get_all_images=True)
-dataset_val = CamelyonDataset('/media/gokberk/Disk/WSIs/Camelyon16/processed/mag20', transform=val_transform, is_training=False, max_bag_size=256, get_all_images=True)
-
-train_loader = torch.utils.data.DataLoader(
-    dataset_train,
-    batch_size=1,
-    num_workers=0,
-    pin_memory=True,
-)
-val_loader = torch.utils.data.DataLoader(
-    dataset_val,
-    batch_size=1,
-    num_workers=0,
-    pin_memory=True,
-)
-print(f"Data loaded with {len(dataset_train)} train and {len(dataset_val)} val imgs.")
-print()
-
 
 model = vits.__dict__['vit_base'](patch_size=16, num_classes=0)
 embed_dim = model.embed_dim * 5
 model.cuda()
 model.eval()
-utils.load_pretrained_weights(model, 'pretrained_weights/vitb16.pth', 'teacher', 'vit_base', 16)
+utils.load_pretrained_weights(model, '/home/ag23peby/self-learning-transformer-mil/checkpoint.pth', 'teacher', 'vit_base', 16)
 
-output_path = '/media/gokberk/Disk/WSIs/Camelyon16/embeddings'
+output_path = '/work/scratch/ag23peby/embeddings'
 camelyon_csv_path = os.path.join(output_path, 'Camelyon16.csv')
 normal_csv = os.path.join(output_path, '0-normal.csv')
 tumor_csv = os.path.join(output_path, '1-tumor.csv')
@@ -61,69 +46,70 @@ if not os.path.exists(os.path.join(output_path, '0-normal')):
     os.makedirs(os.path.join(output_path, '0-normal'))
 if not os.path.exists(os.path.join(output_path, '1-tumor')):
     os.makedirs(os.path.join(output_path, '1-tumor'))
-    
-camelyon_csv = open(camelyon_csv_path, 'w')
-writer_camelyon = csv.writer(camelyon_csv)
 
-normal_csv = open(normal_csv, 'w')
-writer_normal = csv.writer(camelyon_csv)
+if os.path.isfile(camelyon_csv_path):
+    camelyon_csv = pd.read_csv(camelyon_csv_path, header=None)
+    already_processed = [row.split('/')[-1].split('.')[0] for row in camelyon_csv[0]]
+else:
+    already_processed = []
 
-tumor_csv = open(tumor_csv, 'w')
-writer_tumor = csv.writer(camelyon_csv)
-import time
+slides = []
+is_training = False
+for root, _, files in os.walk('/work/scratch/ag23peby/processed/mag20', topdown=False):
+    if any('metadata.txt' in file_name for file_name in files):
+        if is_training and 'training' in root:
+            slides.append(root)
+        elif not is_training and 'test' in root:
+            slides.append(root)
 
-for (inp, target, slide_name) in train_loader:
-    start = time.time()
-    inp = torch.squeeze(inp)
-    print(inp.shape)
-    print(target)
-    print(slide_name)
-    folder = '0-normal' if target == 0 else '1-tumor'
-    writer_camelyon.writerow([os.path.join('embeddings', folder, slide_name[0] + '.csv'), target.item()])
-    if folder == '0-normal':
-        writer_normal.writerow([os.path.join('embeddings', folder, slide_name[0] + '.csv'), target.item()])
-        normal_csv.flush()
+reference_csv = pd.read_csv('/work/scratch/ag23peby/processed/mag20/testing/reference.csv', header=None)
+
+"""
+for slide in slides:
+    my_dataset = CustomDataSet(slide, transform=train_transform)
+    slide_id = os.path.basename(slide)
+    slide_path = [row for row in camelyon_csv[0] if slide_id in row]
+    if len(slide_path) > 1:
+        print("Duplicate line in", slide_path[0])
+    slide_csv = pd.read_csv(os.path.join('/media/gokberk/Disk/WSIs/Camelyon16', slide_path[0]), header=None)
+    if len(slide_csv) == len(my_dataset):
+        continue
+    print("Problem at", slide_id)
+
+print("Completed")
+"""
+
+for slide in slides:
+    slide_id = os.path.basename(slide)
+    if slide_id in already_processed:
+        continue
+    if is_training:
+        target = 0 if 'normal' in slide_id else 1
     else:
-        writer_tumor.writerow([os.path.join('embeddings', folder, slide_name[0] + '.csv'), target.item()])
-        tumor_csv.flush()
-    camelyon_csv.flush()
-    for i in range(0, inp.shape[0], 64):
-        if i + 64 > inp.shape[0]:
-            images = inp[i::].cuda()
-        else:
-            images = inp[i:i+64].cuda()
+        target = 0 if 'Normal' in reference_csv.loc[reference_csv[0] == slide_id][1].item() else 1
+    folder = '0-normal' if target == 0 else '1-tumor'
+    pd.DataFrame([[os.path.join('embeddings', folder, slide_id + '.csv'), target]]).to_csv(os.path.join(camelyon_csv_path), index=None, header=None, mode='a+')
+    if folder == '0-normal':
+        pd.DataFrame([[os.path.join('embeddings', folder, slide_id + '.csv'), target]]).to_csv(os.path.join(normal_csv), index=None, header=None, mode='a+')
+    else:
+        pd.DataFrame([[os.path.join('embeddings', folder, slide_id + '.csv'), target]]).to_csv(os.path.join(tumor_csv), index=None, header=None, mode='a+')
+    my_dataset = CustomDataSet(slide, transform=train_transform)
+    train_loader = torch.utils.data.DataLoader(
+        my_dataset,
+        batch_size=256,
+        num_workers=0,
+        pin_memory=True,
+        shuffle=False
+    )
+    print(target)
+    print(slide_id)
+    print(len(my_dataset))
+    for inp in train_loader:
+        inp = inp.cuda()
         with torch.no_grad():
-            intermediate_output = model.get_intermediate_layers(images, 4)
+            intermediate_output = model.get_intermediate_layers(inp, 4)
             output = [x[:, 0] for x in intermediate_output]
             output.append(torch.mean(intermediate_output[-1][:, 1:], dim=1))
             output = torch.cat(output, dim=-1)
         output = output.detach().cpu().numpy()
-        pd.DataFrame(output).to_csv(os.path.join(output_path, folder, slide_name[0] + '.csv'), index=None, header=None, mode='a')
-    print(f'Time: {time.time() - start}')
-        
-for (inp, target, slide_name) in val_loader:
-    start = time.time()
-    inp = torch.squeeze(inp)
-    print(inp.shape)
-    print(target)
-    print(slide_name)
-    folder = '0-normal' if target == 0 else '1-tumor'
-    writer_camelyon.writerow([os.path.join('embeddings', folder, slide_name[0] + '.csv'), target.item()])
-    if folder == '0-normal':
-        writer_normal.writerow([os.path.join('embeddings', folder, slide_name[0] + '.csv'), target.item()])
-        normal_csv.flush()
-    else:
-        writer_tumor.writerow([os.path.join('embeddings', folder, slide_name[0] + '.csv'), target.item()])
-        tumor_csv.flush()
-    camelyon_csv.flush()
-    for i in range(0, inp.shape[0], 64):
-        if i + 64 > inp.shape[0]:
-            images = inp[i::].cuda()
-        else:
-            images = inp[i:i+64].cuda()
-    print(f'Time: {time.time() - start}')
-        
-camelyon_csv.close()
-normal_csv.close()
-tumor_csv.close()
-    
+        pd.DataFrame(output).to_csv(os.path.join(output_path, folder, slide_id + '.csv'), index=None, header=None, mode='a')
