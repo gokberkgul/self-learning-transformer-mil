@@ -376,6 +376,25 @@ class VisionTransformer(nn.Module):
             x = blk(x)
         x = self.norm(x)
         return x[:, 0]  #: Return cls token
+    
+    def get_last_selfattention(self, x):
+        x = self.prepare_tokens(x)
+        for i, blk in enumerate(self.blocks):
+            if i < len(self.blocks) - 1:
+                x = blk(x)
+            else:
+                # return attention of the last block
+                return blk(x, return_attention=True)
+
+    def get_intermediate_layers(self, x, n=1):
+        x = self.prepare_tokens(x)
+        # we return the output tokens from the `n` last blocks
+        output = []
+        for i, blk in enumerate(self.blocks):
+            x = blk(x)
+            if len(self.blocks) - i <= n:
+                output.append(self.norm(x))
+        return output
 
 
 ## Below here is copy-pasted from https://github.com/facebookresearch/dino
