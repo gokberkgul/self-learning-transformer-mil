@@ -33,7 +33,9 @@ from torchvision import models as torchvision_models
 import utils
 import vision_transformer as vits
 from vision_transformer import DINOHead
-from src.dataloader.CamelyonDataset import CamelyonDataset
+
+sys.path.append(os.path.join(os.path.dirname(Path(__file__).parent.resolve()), 'dataloader'))  # Quick resolve for importing CamelyonDataset.py
+from CamelyonDataset import CamelyonDataset
 
 torchvision_archs = sorted(name for name in torchvision_models.__dict__
     if name.islower() and not name.startswith("__")
@@ -169,17 +171,6 @@ def train_dino(args):
         )
         teacher = vits.__dict__[args.arch](patch_size=args.patch_size)
         embed_dim = student.patch_embed.embed_dim
-    # if the network is a XCiT
-    elif args.arch in torch.hub.list("facebookresearch/xcit"):
-        student = torch.hub.load('facebookresearch/xcit', args.arch,
-                                 pretrained=True, drop_path_rate=args.drop_prob)
-        teacher = torch.hub.load('facebookresearch/xcit', args.arch, pretrained=True)
-        embed_dim = student.embed_dim
-    # otherwise, we check if the architecture is in torchvision models
-    elif args.arch in torchvision_models.__dict__.keys():
-        student = torchvision_models.__dict__[args.arch]()
-        teacher = torchvision_models.__dict__[args.arch]()
-        embed_dim = student.fc.weight.shape[1]
     else:
         print(f"Unknow architecture: {args.arch}")
 
